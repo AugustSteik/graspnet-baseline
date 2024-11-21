@@ -13,4 +13,6 @@
 *.egg
 **/*.egg-info/**
 logs
+log
 dataset
+.vscode

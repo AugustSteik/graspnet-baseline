@@ -47,6 +47,8 @@ def process_grasp_labels(end_points):
             num_grasp_points = grasp_points.size(0)
             # generate and transform template grasp views
             grasp_views = generate_grasp_views(V).to(pose.device) #(V, 3)
+            # print("grasp_views shape:", grasp_views.shape)  # Should be (300, 3)
+            # print("grasp_views device:", grasp_views.device)
             grasp_points_trans = transform_point_cloud(grasp_points, pose, '3x4')
             grasp_views_trans = transform_point_cloud(grasp_views, pose[:3,:3], '3x3')
             # generate and transform template grasp view rotation

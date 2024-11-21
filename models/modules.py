@@ -19,8 +19,12 @@ from pointnet2_utils import CylinderQueryAndGroup
 from loss_utils import generate_grasp_views, batch_viewpoint_params_to_matrix
 
 
-class ApproachNet(nn.Module):
+class MyApproachNet(nn.Module):
     def __init__(self, num_view, seed_feature_dim):
+        super().__init__()
+        
+class ApproachNet(nn.Module):
+    def __init__(self, num_view, seed_feature_dim):  # NOTE: 300, 256
         """ Approach vector estimation from seed point features.
 
             Input:

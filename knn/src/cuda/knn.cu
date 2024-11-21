@@ -9,6 +9,7 @@
 
 // Includes
 #include <cstdio>
+#include <cstdint>
 #include "cuda.h"
 
 #define IDX2D(i, j, dj) (dj * i + j)
@@ -110,12 +111,12 @@ __shared__ float shared_B[BLOCK_DIM][BLOCK_DIM];
   * @param height      height of the distance matrix and of the index matrix
   * @param k           number of neighbors to consider
   */
-__global__ void cuInsertionSort(float *dist, long *ind, int width, int height, int k){
+__global__ void cuInsertionSort(float *dist, int64_t *ind, int width, int height, int k){
 
   // Variables
   int l, i, j;
   float *p_dist;
-  long  *p_ind;
+  int64_t  *p_ind;
   float curr_dist, max_dist;
   long  curr_row,  max_row;
   unsigned int xIndex = blockIdx.x * blockDim.x + threadIdx.x;
@@ -215,7 +216,7 @@ __global__ void cuParallelSqrt(float *dist, int width, int k){
   *
   */
 void knn_device(float* ref_dev, int ref_nb, float* query_dev, int query_nb,
-    int dim, int k, float* dist_dev, long* ind_dev, cudaStream_t stream){
+    int dim, int k, float* dist_dev, int64_t* ind_dev, cudaStream_t stream){
 
   // Grids and threads
   dim3 g_16x16(query_nb/16, ref_nb/16, 1);
