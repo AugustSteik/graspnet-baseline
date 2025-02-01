@@ -12,7 +12,6 @@
 *.so
 *.egg
 **/*.egg-info/**
-logs
-log
+*log*
 dataset
 .vscode

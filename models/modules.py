@@ -19,9 +19,75 @@ from pointnet2_utils import CylinderQueryAndGroup
 from loss_utils import generate_grasp_views, batch_viewpoint_params_to_matrix
 
 
-class MyApproachNet(nn.Module):
+class MLPApproachNet(nn.Module):
     def __init__(self, num_view, seed_feature_dim):
+        """ Approach vector estimation from seed point features.
+
+            Input:
+                num_view: [int]
+                    number of views generated from each each seed point
+                seed_feature_dim: [int]
+                    number of channels of seed point features
+
+        """
         super().__init__()
+        self.num_view = num_view
+        self.input_size = seed_feature_dim
+        hidden_dim_size = 128
+        
+        self.shared_fc1 = nn.Linear(self.input_size, hidden_dim_size)
+        self.shared_fc2 = nn.Linear(hidden_dim_size, hidden_dim_size)
+
+        # Separate output heads for objectness and views
+        self.objectness_head = nn.Linear(hidden_dim_size, 2)
+        self.view_head = nn.Linear(hidden_dim_size, self.num_view) 
+        
+    def forward(self, seed_xyz, seed_features, end_points):
+        """ Forward pass.
+
+            Input:
+                seed_xyz: [torch.FloatTensor, (batch_size,num_seed,3)]
+                    coordinates of seed points
+                seed_features: [torch.FloatTensor, (batch_size,feature_dim,num_seed)
+                    features of seed points
+                end_points: [dict]
+
+            Output:
+                end_points: [dict]
+        """
+        B, num_seed, _ = seed_xyz.size()
+        
+        features = seed_features.permute(0, 2, 1)
+        features = features.contiguous().view(-1, features.shape[-1])
+        features = features.reshape(-1, features.shape[-1])
+
+        features = F.relu(self.shared_fc1(features))
+        features = F.relu(self.shared_fc2(features))
+        
+        objectness_score = self.objectness_head(features).view(B, 2, num_seed)
+        
+        view_score = self.view_head(features).view(B, num_seed, self.num_view)
+        view_score = view_score.view(B, num_seed, self.num_view)
+        
+        top_view_scores, top_view_inds = torch.max(view_score, dim=2)
+        top_view_inds_ = top_view_inds.view(B, num_seed, 1, 1).expand(-1, -1, -1, 3).contiguous()
+        
+        template_views = generate_grasp_views(self.num_view).to(features.device) # (num_view, 3)
+        template_views = template_views.view(1, 1, self.num_view, 3).expand(B, num_seed, -1, -1).contiguous() #(B, num_seed, num_view, 3)
+        
+        vp_xyz = torch.gather(template_views, 2, top_view_inds_).squeeze(2) #(B, num_seed, 3)
+        vp_xyz_ = vp_xyz.view(-1, 3)
+        batch_angle = torch.zeros(vp_xyz_.size(0), dtype=vp_xyz.dtype, device=vp_xyz.device)
+        vp_rot = batch_viewpoint_params_to_matrix(-vp_xyz_, batch_angle).view(B, num_seed, 3, 3)
+
+        end_points['objectness_score'] = objectness_score.to(torch.float)
+        end_points['view_score'] = view_score
+        end_points['grasp_top_view_inds'] = top_view_inds
+        end_points['grasp_top_view_score'] = top_view_scores
+        end_points['grasp_top_view_xyz'] = vp_xyz
+        end_points['grasp_top_view_rot'] = vp_rot
+        
+        return end_points
         
 class ApproachNet(nn.Module):
     def __init__(self, num_view, seed_feature_dim):  # NOTE: 300, 256
@@ -59,8 +125,8 @@ class ApproachNet(nn.Module):
         features = F.relu(self.bn1(self.conv1(seed_features)), inplace=True)
         features = F.relu(self.bn2(self.conv2(features)), inplace=True)
         features = self.conv3(features)
-        objectness_score = features[:, :2, :] # (B, 2, num_seed)
-        view_score = features[:, 2:2+self.num_view, :].transpose(1,2).contiguous() # (B, num_seed, num_view)
+        objectness_score = features[:, :2, :] # (B, 2, num_seed)  # NOTE: This outputs logits for two classes - graspable or not
+        view_score = features[:, 2:2+self.num_view, :].transpose(1,2).contiguous() # (B, num_seed, num_view) NOTE: This predicts scores for each possible approach vector
         end_points['objectness_score'] = objectness_score
         end_points['view_score'] = view_score
 
@@ -69,10 +135,10 @@ class ApproachNet(nn.Module):
         top_view_inds_ = top_view_inds.view(B, num_seed, 1, 1).expand(-1, -1, -1, 3).contiguous()
         template_views = generate_grasp_views(self.num_view).to(features.device) # (num_view, 3)
         template_views = template_views.view(1, 1, self.num_view, 3).expand(B, num_seed, -1, -1).contiguous() #(B, num_seed, num_view, 3)
-        vp_xyz = torch.gather(template_views, 2, top_view_inds_).squeeze(2) #(B, num_seed, 3)
+        vp_xyz = torch.gather(template_views, 2, top_view_inds_).squeeze(2) #(B, num_seed, 3)  # NOTE: Selected approach vecs are generated from predefined set of possible directions
         vp_xyz_ = vp_xyz.view(-1, 3)
         batch_angle = torch.zeros(vp_xyz_.size(0), dtype=vp_xyz.dtype, device=vp_xyz.device)
-        vp_rot = batch_viewpoint_params_to_matrix(-vp_xyz_, batch_angle).view(B, num_seed, 3, 3)
+        vp_rot = batch_viewpoint_params_to_matrix(-vp_xyz_, batch_angle).view(B, num_seed, 3, 3)  # NOTE: Approach vecs are used to ocmpute rotations matrices for hte gripper
         end_points['grasp_top_view_inds'] = top_view_inds
         end_points['grasp_top_view_score'] = top_view_scores
         end_points['grasp_top_view_xyz'] = vp_xyz

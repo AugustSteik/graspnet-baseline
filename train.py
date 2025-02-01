@@ -18,16 +18,16 @@ sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 sys.path.append(os.path.join(ROOT_DIR, 'pointnet2'))
 sys.path.append(os.path.join(ROOT_DIR, 'models'))
 sys.path.append(os.path.join(ROOT_DIR, 'dataset'))
-from graspnet import GraspNet, get_loss
+from graspnet import GraspNet, get_loss, MyGraspNet
 from pytorch_utils import BNMomentumScheduler
 from graspnet_dataset import GraspNetDataset, collate_fn, load_grasp_labels
 from label_generation import process_grasp_labels
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset_root', required=False, default='dataset', help='Dataset root')
-parser.add_argument('--camera', required=False, default='realsense', help='Camera split [realsense/kinect]')
+parser.add_argument('--camera', required=False, default='kinect', help='Camera split [realsense/kinect]')
 parser.add_argument('--checkpoint_path', default=None, help='Model checkpoint path [default: None]')
-parser.add_argument('--log_dir', default='logs/log_rs', help='Dump dir to save model checkpoint [default: log]')
+parser.add_argument('--log_dir', default='logs/log_my_kn', help='Dump dir to save model checkpoint [default: log]')
 parser.add_argument('--num_point', type=int, default=20000, help='Point Number [default: 20000]')
 parser.add_argument('--num_view', type=int, default=300, help='View Number [default: 300]')
 parser.add_argument('--max_epoch', type=int, default=18, help='Epoch to run [default: 18]')
@@ -76,7 +76,9 @@ TEST_DATALOADER = DataLoader(TEST_DATASET, batch_size=cfgs.batch_size, shuffle=F
     num_workers=0, worker_init_fn=my_worker_init_fn, collate_fn=collate_fn)
 print(len(TRAIN_DATALOADER), len(TEST_DATALOADER))
 # Init the model and optimzier
-net = GraspNet(input_feature_dim=0, num_view=cfgs.num_view, num_angle=12, num_depth=4,
+# net = GraspNet(input_feature_dim=0, num_view=cfgs.num_view, num_angle=12, num_depth=4,
+#                         cylinder_radius=0.05, hmin=-0.02, hmax_list=[0.01,0.02,0.03,0.04])
+net = MyGraspNet(input_feature_dim=0, num_view=cfgs.num_view, num_angle=12, num_depth=4,
                         cylinder_radius=0.05, hmin=-0.02, hmax_list=[0.01,0.02,0.03,0.04])
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 net.to(device)

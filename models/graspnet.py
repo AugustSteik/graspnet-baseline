@@ -15,12 +15,28 @@ sys.path.append(ROOT_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'pointnet2'))
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 
-from backbone import Pointnet2Backbone
-from modules import ApproachNet, CloudCrop, OperationNet, ToleranceNet
-from loss import get_loss
+from models.backbone import Pointnet2Backbone
+from models.modules import ApproachNet, CloudCrop, OperationNet, ToleranceNet
+from models.loss import get_loss
 from loss_utils import GRASP_MAX_WIDTH, GRASP_MAX_TOLERANCE
 from label_generation import process_grasp_labels, match_grasp_view_and_label, batch_viewpoint_params_to_matrix
 
+# My modules:
+from models.modules import MLPApproachNet
+from label_generation import process_my_grasp_labels
+from models.loss import get_approach_loss
+
+class MyGraspNetStage1(nn.Module):
+    def __init__(self, input_feature_dim=0, num_view=300):
+        super().__init__()
+        self.backbone = Pointnet2Backbone(input_feature_dim)
+        self.vpmodule = MLPApproachNet(num_view, seed_feature_dim=256)
+        
+    def forward(self, end_points):
+        pointcloud = end_points['point_clouds']
+        seed_features, seed_xyz, end_points = self.backbone(pointcloud, end_points)
+        end_points = self.vpmodule(seed_xyz, seed_features, end_points)
+        return end_points
 
 class GraspNetStage1(nn.Module):
     def __init__(self, input_feature_dim=0, num_view=300):
@@ -74,6 +90,20 @@ class GraspNet(nn.Module):
         end_points = self.grasp_generator(end_points)
         return end_points
 
+class MyGraspNet(nn.Module):
+    def __init__(self, input_feature_dim=0, num_view=300, num_angle=12, num_depth=4, cylinder_radius=0.05, hmin=-0.02, hmax_list=[0.01,0.02,0.03,0.04], is_training=True):
+        super().__init__()
+        self.is_training = is_training
+        self.view_estimator = MyGraspNetStage1(input_feature_dim, num_view)
+        self.grasp_generator = GraspNetStage2(num_angle, num_depth, cylinder_radius, hmin, hmax_list, is_training)
+
+    def forward(self, end_points):
+        end_points = self.view_estimator(end_points)
+        if self.is_training:
+            end_points = process_grasp_labels(end_points)
+        end_points = self.grasp_generator(end_points)
+        return end_points
+    
 def pred_decode(end_points):
     batch_size = len(end_points['point_clouds'])
     grasp_preds = []

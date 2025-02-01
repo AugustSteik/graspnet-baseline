@@ -66,7 +66,7 @@ class Pointnet2Backbone(nn.Module):
         self.fp1 = PointnetFPModule(mlp=[256+256,256,256])
         self.fp2 = PointnetFPModule(mlp=[256+256,256,256])
 
-    def _break_up_pc(self, pc):
+    def _break_up_pc(self, pc):  # Splits pc tensor to 2 parts: (x, y, z) and features
         xyz = pc[..., 0:3].contiguous()
         features = (
             pc[..., 3:].transpose(1, 2).contiguous()

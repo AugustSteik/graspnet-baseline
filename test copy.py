@@ -15,15 +15,15 @@ sys.path.append(os.path.join(ROOT_DIR, 'models'))
 sys.path.append(os.path.join(ROOT_DIR, 'dataset'))
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 
-from graspnet import GraspNet, pred_decode
+from graspnet import MyGraspNet, pred_decode
 from graspnet_dataset import GraspNetDataset, collate_fn
 from collision_detector import ModelFreeCollisionDetector
-
+print(ROOT_DIR)
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset_root', required=True, help='Dataset root')
-parser.add_argument('--checkpoint_path', required=True, help='Model checkpoint path')
-parser.add_argument('--dump_dir', required=True, help='Dump dir to save outputs')
-parser.add_argument('--camera', required=True, help='Camera split [realsense/kinect]')
+parser.add_argument('--dataset_root', required=False, default=f'{ROOT_DIR}/dataset', help='Dataset root')
+parser.add_argument('--checkpoint_path', required=False, default=f'{ROOT_DIR}/logs/my_logs/train_3_mlp_approachnet_full/checkpoint.tar', help='Model checkpoint path')
+parser.add_argument('--dump_dir', required=False, default=f'{ROOT_DIR}/logs/my_logs/train_3_mlp_approachnet_full/test_outputs', help='Dump dir to save outputs')
+parser.add_argument('--camera', required=False, default='kinect', help='Camera split [realsense/kinect]')
 parser.add_argument('--num_point', type=int, default=20000, help='Point Number [default: 20000]')
 parser.add_argument('--num_view', type=int, default=300, help='View Number [default: 300]')
 parser.add_argument('--batch_size', type=int, default=1, help='Batch Size during inference [default: 1]')
@@ -41,15 +41,18 @@ def my_worker_init_fn(worker_id):
     pass
 
 # Create Dataset and Dataloader
-TEST_DATASET = GraspNetDataset(cfgs.dataset_root, valid_obj_idxs=None, grasp_labels=None, split='test', camera=cfgs.camera, num_points=cfgs.num_point, remove_outlier=True, augment=False, load_label=False)
+split = 'test'
+TEST_DATASET = GraspNetDataset(cfgs.dataset_root, valid_obj_idxs=None, grasp_labels=None, 
+                               split=split, camera=cfgs.camera, num_points=cfgs.num_point, 
+                               remove_outlier=True, augment=False, load_label=False)
 
 print(len(TEST_DATASET))
 SCENE_LIST = TEST_DATASET.scene_list()
 TEST_DATALOADER = DataLoader(TEST_DATASET, batch_size=cfgs.batch_size, shuffle=False,
-    num_workers=4, worker_init_fn=my_worker_init_fn, collate_fn=collate_fn)
+    num_workers=2, worker_init_fn=my_worker_init_fn, collate_fn=collate_fn)
 print(len(TEST_DATALOADER))
 # Init the model
-net = GraspNet(input_feature_dim=0, num_view=cfgs.num_view, num_angle=12, num_depth=4,
+net = MyGraspNet(input_feature_dim=0, num_view=cfgs.num_view, num_angle=12, num_depth=4,
                      cylinder_radius=0.05, hmin=-0.02, hmax_list=[0.01,0.02,0.03,0.04], is_training=False)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 net.to(device)
@@ -108,7 +111,7 @@ def inference():
             tic = time.time()
 
 def evaluate():
-    ge = GraspNetEval(root=cfgs.dataset_root, camera=cfgs.camera, split='test')
+    ge = GraspNetEval(root=cfgs.dataset_root, camera=cfgs.camera, split=split)
     res, ap = ge.eval_all(cfgs.dump_dir, proc=cfgs.num_workers)
     save_dir = os.path.join(cfgs.dump_dir, 'ap_{}.npy'.format(cfgs.camera))
     np.save(save_dir, res)

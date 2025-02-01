@@ -27,6 +27,21 @@ def get_loss(end_points):
     end_points['loss/overall_loss'] = loss
     return loss, end_points
 
+def get_approach_loss(end_points):
+    """Original loss funciton without grasp_loss
+    Input:
+            end_points: dict{}
+    Output:
+            loss: tensor of size 1  TODO: Check this is correct
+            end_points: dict {}
+    """
+    objectness_loss, end_points = compute_objectness_loss(end_points)
+    view_loss, end_points = compute_view_loss(end_points)
+    grasp_loss, end_points = compute_grasp_loss(end_points)
+    loss = objectness_loss + view_loss + 0.2 * grasp_loss
+    end_points['loss/overall_loss'] = loss
+    return loss, end_points
+
 def compute_objectness_loss(end_points):
     criterion = nn.CrossEntropyLoss(reduction='mean')
     objectness_score = end_points['objectness_score']
