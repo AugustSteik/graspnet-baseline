@@ -15,21 +15,21 @@ sys.path.append(os.path.join(ROOT_DIR, 'models'))
 sys.path.append(os.path.join(ROOT_DIR, 'dataset'))
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 
-from graspnet import MyGraspNet, pred_decode
+from graspnet import MyGraspNet, pred_decode, GraspNet
 from graspnet_dataset import GraspNetDataset, collate_fn
 from collision_detector import ModelFreeCollisionDetector
-print(ROOT_DIR)
+# print(ROOT_DIR)
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset_root', required=False, default=f'{ROOT_DIR}/dataset', help='Dataset root')
-parser.add_argument('--checkpoint_path', required=False, default=f'{ROOT_DIR}/logs/my_logs/train_3_mlp_approachnet_full/checkpoint.tar', help='Model checkpoint path')
-parser.add_argument('--dump_dir', required=False, default=f'{ROOT_DIR}/logs/my_logs/train_3_mlp_approachnet_full/test_outputs', help='Dump dir to save outputs')
+parser.add_argument('--checkpoint_path', required=False, default=f'{ROOT_DIR}/logs/original/checkpoint-kn.tar', help='Model checkpoint path')
+parser.add_argument('--dump_dir', required=False, default=f'{ROOT_DIR}/logs/original/test_outputs', help='Dump dir to save outputs')
 parser.add_argument('--camera', required=False, default='kinect', help='Camera split [realsense/kinect]')
 parser.add_argument('--num_point', type=int, default=20000, help='Point Number [default: 20000]')
 parser.add_argument('--num_view', type=int, default=300, help='View Number [default: 300]')
-parser.add_argument('--batch_size', type=int, default=1, help='Batch Size during inference [default: 1]')
+parser.add_argument('--batch_size', type=int, default=2, help='Batch Size during inference [default: 1]')
 parser.add_argument('--collision_thresh', type=float, default=0.01, help='Collision Threshold in collision detection [default: 0.01]')
 parser.add_argument('--voxel_size', type=float, default=0.01, help='Voxel Size to process point clouds before collision detection [default: 0.01]')
-parser.add_argument('--num_workers', type=int, default=30, help='Number of workers used in evaluation [default: 30]')
+parser.add_argument('--num_workers', type=int, default=10, help='Number of workers used in evaluation [default: 30]')
 cfgs = parser.parse_args()
 
 # ------------------------------------------------------------------------- GLOBAL CONFIG BEG
@@ -52,7 +52,9 @@ TEST_DATALOADER = DataLoader(TEST_DATASET, batch_size=cfgs.batch_size, shuffle=F
     num_workers=2, worker_init_fn=my_worker_init_fn, collate_fn=collate_fn)
 print(len(TEST_DATALOADER))
 # Init the model
-net = MyGraspNet(input_feature_dim=0, num_view=cfgs.num_view, num_angle=12, num_depth=4,
+# net = MyGraspNet(input_feature_dim=0, num_view=cfgs.num_view, num_angle=12, num_depth=4,
+#                      cylinder_radius=0.05, hmin=-0.02, hmax_list=[0.01,0.02,0.03,0.04], is_training=False)
+net = GraspNet(input_feature_dim=0, num_view=cfgs.num_view, num_angle=12, num_depth=4,
                      cylinder_radius=0.05, hmin=-0.02, hmax_list=[0.01,0.02,0.03,0.04], is_training=False)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 net.to(device)
