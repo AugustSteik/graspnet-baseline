@@ -6,13 +6,14 @@ from graspnetAPI import GraspNet
 import open3d as o3d
 import cv2
 
+# o3d.visualization.webrtc_server.enable_webrtc()
 
 ####################################################################
 graspnet_root = os.path.join(os.path.dirname(__file__), 'dataset') # ROOT PATH FOR GRASPNET
 ####################################################################
 
-sceneId = 1
-annId = 3
+sceneId = 100
+annId = 0
 
 
 
@@ -31,7 +32,8 @@ o3d.visualization.draw_geometries(geometries)
 
 #  applying NMS (non-maximum suppression) to graspgroup
 
-nms_grasp = _6d_grasp.nms(translation_thresh = 0.1, rotation_thresh = 30 / 180.0 * 3.1416)
+# nms_grasp = _6d_grasp.nms(translation_thresh = 0.1, rotation_thresh = 30 / 180.0 * 3.1416)
+nms_grasp = _6d_grasp
 print('grasp after nms:\n{}'.format(nms_grasp))
 
 # visualize the grasps using open3d

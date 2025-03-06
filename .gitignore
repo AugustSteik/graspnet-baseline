@@ -13,5 +13,12 @@
 *.egg
 **/*.egg-info/**
 *log*
-dataset
-.vscode
+dataset/collision_label
+dataset/dex_models
+dataset/grasp_label
+dataset/models
+dataset/rect_labels
+dataset/scenes
+dataset/tolerance
+grasp_lime/data
+grasp_lime/visu
