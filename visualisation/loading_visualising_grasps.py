@@ -9,7 +9,7 @@ import cv2
 # o3d.visualization.webrtc_server.enable_webrtc()
 
 ####################################################################
-graspnet_root = os.path.join(os.path.dirname(__file__), 'dataset') # ROOT PATH FOR GRASPNET
+graspnet_root = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'dataset') # ROOT PATH FOR GRASPNET
 ####################################################################
 
 sceneId = 100

@@ -17,7 +17,7 @@ from tqdm import tqdm
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
-from data_utils import CameraInfo, transform_point_cloud, create_point_cloud_from_depth_image,\
+from utils.data_utils import CameraInfo, transform_point_cloud, create_point_cloud_from_depth_image,\
                             get_workspace_mask, remove_invisible_grasp_points
 
 class GraspNetDataset(Dataset):
@@ -37,7 +37,7 @@ class GraspNetDataset(Dataset):
         self.collision_labels = {}
         self.debug = debug
 
-        if scene_id:
+        if scene_id is not None:
             self.sceneIds = [scene_id]
             
         elif split == 'train':
@@ -280,7 +280,7 @@ def collate_fn(batch):
     raise TypeError("batch must contain tensors, dicts or lists; found {}".format(type(batch[0])))
 
 if __name__ == "__main__":
-    root = '/data/Benchmark/graspnet'
+    root = os.path.dirname(__file__)
     valid_obj_idxs, grasp_labels = load_grasp_labels(root)
     train_dataset = GraspNetDataset(root, valid_obj_idxs, grasp_labels, split='train', remove_outlier=True, remove_invisible=True, num_points=20000)
     print(len(train_dataset))

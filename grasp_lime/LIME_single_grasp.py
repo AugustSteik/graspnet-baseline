@@ -12,7 +12,6 @@ import os
 import torch
 import logging
 import sys
-import importlib
 # from captum.attr import IntegratedGradients
 import matplotlib.pyplot as plt
 import open3d as o3d
@@ -29,19 +28,15 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from graspnetAPI import GraspGroup, GraspNetEval, GraspNet as gnet
 
-from torchvision.models.feature_extraction import create_feature_extractor, get_graph_node_names
+sys.path.append('/home/as_admin/development/graspnet-baseline')
 
-sys.path.append('/home/as_admin/development/graspnet-baseline/models')
-sys.path.append('/home/as_admin/development/graspnet-baseline/dataset')
-sys.path.append('/home/as_admin/development/graspnet-baseline/utils')
+from models.graspnet import MyGraspNet, pred_decode, pred_decode_loose, GraspNet
+from dataset.graspnet_dataset import GraspNetDataset, load_grasp_labels, collate_fn
+from utils.collision_detector import ModelFreeCollisionDetector
 
-from graspnet import MyGraspNet, pred_decode, GraspNet
-from graspnet_dataset import GraspNetDataset, collate_fn
-from collision_detector import ModelFreeCollisionDetector
+from grasp_lime.lime import lime_3d_remove
 
-from lime import lime_3d_remove
-
-from graspnet import GraspNet
+# from graspnet import GraspNet
 
 
 LIME_DIR = os.path.dirname(os.path.abspath(__file__))  # LIME directory
@@ -120,8 +115,7 @@ def gen_pc_data(ori_data,segments,explain,label,filename):
     pc = o3d.geometry.PointCloud()
     pc.points = o3d.utility.Vector3dVector(pc_colored[:,0:3])
     pc.colors = o3d.utility.Vector3dVector(pc_colored[:,3:6])
-    o3d.io.write_point_cloud(os.path.join(basic_path, filename.rsplit('/')[-1]), pc)        
-    # print("Generate point cloud (gen pc data)", filename, "successful!") 
+    o3d.io.write_point_cloud(os.path.join(basic_path, filename.rsplit('/')[-1]), pc)
     return
     
 def reverse_points(points,segments,explain,start='positive',percentage=0.2):
@@ -144,7 +138,6 @@ def reverse_points(points,segments,explain,start='positive',percentage=0.2):
     pc = o3d.geometry.PointCloud()
     pc.points = o3d.utility.Vector3dVector(points[:,0:3])
     o3d.io.write_point_cloud(os.path.join(basic_path, filename), pc)
-    # print("Generate point cloud (reverse points)", filename, "successful!") 
     return points
 
 def sampling(points, sample_size):
@@ -155,7 +148,7 @@ def sampling(points, sample_size):
     sampled = points[sampled_index]
     return sampled
 
-def init_model(hook_fn=None, wrapped=True, scene_id=1, image_range=(0, 1)):
+def init_model(hook_fn=None, wrapped=True, scene_id=0, image_range=(0, 1), get_labels=False):
     """Initialses the GraspNet model. 
 
     Args:
@@ -174,10 +167,13 @@ def init_model(hook_fn=None, wrapped=True, scene_id=1, image_range=(0, 1)):
         pass
     
     # Load the dataset and dataloader
-    # TEST_DATASET = GraspNetDataset(cfgs.dataset_root, valid_obj_idxs=None, grasp_labels=None, 
-    #                             split='test', camera=cfgs.camera, num_points=cfgs.num_point, 
-    #                             remove_outlier=True, augment=False, load_label=False, debug=True, image_range=image_range, scene_id=scene_id)
-    TEST_DATASET = 
+    valid_obj_idxs, grasp_labels = None, None
+    if get_labels:
+        valid_obj_idxs, grasp_labels = load_grasp_labels(cfgs.dataset_root)
+    TEST_DATASET = GraspNetDataset(cfgs.dataset_root, valid_obj_idxs=valid_obj_idxs, grasp_labels=grasp_labels, 
+                                split='test', camera=cfgs.camera, num_points=cfgs.num_point, 
+                                remove_outlier=True, augment=False, load_label=False, debug=True, image_range=image_range, scene_id=scene_id)
+    
     print(len(TEST_DATASET))
     TEST_DATALOADER = DataLoader(TEST_DATASET, batch_size=cfgs.batch_size, shuffle=False,
         num_workers=2, worker_init_fn=my_worker_init_fn, collate_fn=collate_fn)
@@ -210,12 +206,14 @@ class GraspNetWrapper(torch.nn.Module):
         top_grasp_probs, top_grasp_idxs = grasp_probs.topk(1, dim=-1)  # Get the top grasp and no-grasp probabilities and indices
         return grasp_logits[:, 0, :], top_grasp_idxs[:, 0]
     
-def run_eval(net, dataloader, hook_fn=None):
+def run_eval(net, dataloader, hook_fn=None, raw_predictions=True):
     """Runs the evaluation on the GraspNet model with an optional hook function.
+    If not using raw predictions, a grasp group is returned for the chosen scene.
+    Otherwise, logits for graspability and end_points are returned.
     """
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     hook_handle, logits, predictions = None, None, None
-    
+    grasp_preds = []
     if hook_fn:
         try:
             hook_module = net.model.view_estimator.vpmodule
@@ -234,8 +232,17 @@ def run_eval(net, dataloader, hook_fn=None):
                 batch_data[key] = batch_data[key].to(device)
                 
         with torch.no_grad():
-            logits, predictions = net(batch_data)  # batch data here is a dict - adjust wrapper to accept raw pc as input
-            # grasp_preds = pred_decode(end_points)  # TODO: Find out what this does
+            if raw_predictions:
+                logits, end_points = net(batch_data)
+                predictions = end_points
+            else:
+                end_points = net(batch_data)
+                grasp_preds = pred_decode_loose(end_points)  # Original does not output any grasps, let alone one for each point
+                
+    if not raw_predictions:
+        for i in range(cfgs.batch_size):
+            predictions = GraspGroup(grasp_preds[i].detach().cpu().numpy())  # NOTE: Always working with one batch but kept this from original for clarity.
+            
     toc = time.time()
     print('Eval time: %fs'%(toc-tic))
     
@@ -362,7 +369,7 @@ if __name__ == '__main__':
     print ('Completed in: ',time.time() - tmp,'s')
     gen_pc_data(points, explanation.segments, explanation.local_exp, predictions.item(), f'/scene_{str(scene_id).zfill(4)}.ply')
 
-    show_pc_plx(f'/scene_{str(scene_id).zfill(4)}.ply', points, explanation.top_labels)
+    show_pc_plx(f'/scene_{str(scene_id).zfill(4)}.ply', points, explanation.top_labels) # type: ignore
     
     g = gnet('/home/as_admin/development/graspnet-baseline/dataset', camera='kinect', split='test')
     # g.show6DPose(sceneIds = scene_id, show = True)

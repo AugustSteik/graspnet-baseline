@@ -105,6 +105,17 @@ class MyGraspNet(nn.Module):
         return end_points
     
 def pred_decode(end_points):
+    """
+
+    Args:
+        end_points (str: torch.Tensor([])): Predicted grasp parameters among other things.
+        Sets any grasp_width values greater than GRASP_MAX_WIDTH to GRASP_MAX_WIDTH. 
+        Obtains an in-plane grasp angle from the optimum predicted angle class for each point, for each approach distance.
+        Gets the optimum approach distance for each point.
+        
+    Returns:
+        grasp_preds (torch.Tensor([])): 
+    """
     batch_size = len(end_points['point_clouds'])
     grasp_preds = []
     for i in range(batch_size):
@@ -140,6 +151,77 @@ def pred_decode(end_points):
 
         ## slice preds by objectness
         objectness_pred = torch.argmax(objectness_score, 0)
+        objectness_mask = (objectness_pred==1)
+        grasp_score = grasp_score[objectness_mask]
+        grasp_width = grasp_width[objectness_mask]
+        grasp_depth = grasp_depth[objectness_mask]
+        approaching = approaching[objectness_mask]
+        grasp_angle = grasp_angle[objectness_mask]
+        grasp_center = grasp_center[objectness_mask]
+        grasp_tolerance = grasp_tolerance[objectness_mask]
+        grasp_score = grasp_score * grasp_tolerance / GRASP_MAX_TOLERANCE
+
+        ## convert to rotation matrix
+        Ns = grasp_angle.size(0)
+        approaching_ = approaching.view(Ns, 3)
+        grasp_angle_ = grasp_angle.view(Ns)
+        rotation_matrix = batch_viewpoint_params_to_matrix(approaching_, grasp_angle_)
+        rotation_matrix = rotation_matrix.view(Ns, 9)
+
+        # merge preds
+        grasp_height = 0.02 * torch.ones_like(grasp_score)
+        obj_ids = -1 * torch.ones_like(grasp_score)
+        grasp_preds.append(torch.cat([grasp_score, grasp_width, grasp_height, grasp_depth, rotation_matrix, grasp_center, obj_ids], axis=-1))
+    return grasp_preds
+
+def pred_decode_loose(end_points):
+    """
+
+    Args:
+        end_points (str: torch.Tensor([])): Predicted grasp parameters among other things.
+        Sets any grasp_width values greater than GRASP_MAX_WIDTH to GRASP_MAX_WIDTH. 
+        Obtains an in-plane grasp angle from the optimum predicted angle class for each point, for each approach distance.
+        Gets the optimum approach distance for each point.
+        
+    Returns:
+        grasp_preds (torch.Tensor([])): 
+    """
+    batch_size = len(end_points['point_clouds'])
+    grasp_preds = []
+    for i in range(batch_size):
+        ## load predictions
+        objectness_score = end_points['objectness_score'][i].float()
+        grasp_score = end_points['grasp_score_pred'][i].float()
+        grasp_center = end_points['fp2_xyz'][i].float()
+        approaching = -end_points['grasp_top_view_xyz'][i].float()
+        grasp_angle_class_score = end_points['grasp_angle_cls_pred'][i]
+        grasp_width = 1.2 * end_points['grasp_width_pred'][i]
+        grasp_width = torch.clamp(grasp_width, min=0, max=GRASP_MAX_WIDTH)
+        grasp_tolerance = end_points['grasp_tolerance_pred'][i]
+
+        ## slice preds by angle
+        # grasp angle
+        grasp_angle_class = torch.argmax(grasp_angle_class_score, 0)
+        grasp_angle = grasp_angle_class.float() / 12 * np.pi
+        # grasp score & width & tolerance
+        grasp_angle_class_ = grasp_angle_class.unsqueeze(0)
+        grasp_score = torch.gather(grasp_score, 0, grasp_angle_class_).squeeze(0)
+        grasp_width = torch.gather(grasp_width, 0, grasp_angle_class_).squeeze(0)
+        grasp_tolerance = torch.gather(grasp_tolerance, 0, grasp_angle_class_).squeeze(0)
+
+        ## slice preds by score/depth
+        # grasp depth
+        grasp_depth_class = torch.argmax(grasp_score, 1, keepdims=True)
+        grasp_depth = (grasp_depth_class.float()+1) * 0.01
+        # grasp score & angle & width & tolerance
+        grasp_score = torch.gather(grasp_score, 1, grasp_depth_class)
+        grasp_angle = torch.gather(grasp_angle, 1, grasp_depth_class)
+        grasp_width = torch.gather(grasp_width, 1, grasp_depth_class)
+        grasp_tolerance = torch.gather(grasp_tolerance, 1, grasp_depth_class)
+
+        ## slice preds by objectness
+        objectness_pred = torch.argmax(objectness_score, 0)
+        print(torch.count_nonzero(objectness_pred))  # No points on objects !?!??
         objectness_mask = (objectness_pred==1)
         grasp_score = grasp_score[objectness_mask]
         grasp_width = grasp_width[objectness_mask]
