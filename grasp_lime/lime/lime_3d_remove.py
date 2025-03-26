@@ -15,7 +15,7 @@ import torch
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from fps import farthestPointSampling
+from fps import farthestPointSampling, farthest_point_sample
 
 
 from . import lime_base
@@ -32,13 +32,20 @@ def kmeans(dataset, num_clusters, max_iter, random_seed = None):
     if random_seed != None:
         random.seed(random_seed)
     if num_clusters < 200:
-        centers_idx = farthestPointSampling(dataset,num_clusters)
+        if isinstance(dataset, np.ndarray):
+            centers_idx = farthestPointSampling(dataset, num_clusters)
+        else:
+            centers_idx  = farthest_point_sample(dataset, num_clusters)
     else:
         centers_idx = random.sample(range(0,num_points),num_clusters)
     iteration = 0
     while(1):
         dis_mat = []
         for i in range(num_clusters):
+            if isinstance(centers_idx, torch.Tensor):
+                centers_idx = centers_idx.cpu().numpy()
+            if isinstance(dataset, torch.Tensor):
+                dataset = dataset.cpu().numpy()
             center_tmp = np.expand_dims(dataset[centers_idx[i]],0) #dataset[centers_idx[i]]->(3,)
             dis = cal_dis(dataset,center_tmp)
             dis_mat.append(dis)
@@ -170,7 +177,7 @@ class LimeImageExplainer(object):
         self.base = lime_base.LimeBase(kernel_fn, verbose, random_state=self.random_state)
 
     def explain_instance(self, image, classifier_fn, labels=(1,),
-                         top_labels=5, num_features=50, num_samples=1000,
+                         top_labels=None, num_features=50, num_samples=1000,
                          batch_size=1,
                          segmentation_fn=None,
                          distance_metric='cosine',
@@ -240,10 +247,18 @@ class LimeImageExplainer(object):
         for label in top:
             (ret_exp.intercept[label],
              ret_exp.local_exp[label],
-             ret_exp.score, ret_exp.local_pred, ret_exp.mean_diff, ret_exp.weighted_mean_diff, ret_exp.L1_loss, ret_exp.weighted_L1_loss, ret_exp.L2_loss, ret_exp.weighted_L2_loss, ret_exp.adjusted_R2) = self.base.explain_instance_with_data(
-                data, labels, distances, label, num_features,
-                model_regressor=model_regressor,
-                feature_selection=self.feature_selection)
+             ret_exp.score, 
+             ret_exp.local_pred, 
+             ret_exp.mean_diff, 
+             ret_exp.weighted_mean_diff, 
+             ret_exp.L1_loss, 
+             ret_exp.weighted_L1_loss, 
+             ret_exp.L2_loss, 
+             ret_exp.weighted_L2_loss, 
+             ret_exp.adjusted_R2) = self.base.explain_instance_with_data(
+                 data, labels, distances, label, num_features,
+                 model_regressor=model_regressor,
+                 feature_selection=self.feature_selection)
         return ret_exp
 
     def data_labels(self,
@@ -285,6 +300,8 @@ class LimeImageExplainer(object):
             mask = np.zeros(segments.shape).astype(bool)    #1024-lenth bool matrix
             for z in zeros:
                 mask[segments == z] = True
+            if isinstance(temp, torch.Tensor):
+                temp = temp.cpu().numpy()
             temp = np.delete(temp,mask==True,0)
             imgs.append(temp)
             if len(imgs) == batch_size:

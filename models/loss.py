@@ -15,9 +15,11 @@ ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(ROOT_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 
-from loss_utils import GRASP_MAX_WIDTH, GRASP_MAX_TOLERANCE, THRESH_GOOD, THRESH_BAD,\
+from utils.loss_utils import GRASP_MAX_WIDTH, GRASP_MAX_TOLERANCE, THRESH_GOOD, THRESH_BAD,\
                        transform_point_cloud, generate_grasp_views,\
                        batch_viewpoint_params_to_matrix, huber_loss
+
+from record_something import log_variable, varname
 
 def get_loss(end_points):
     objectness_loss, end_points = compute_objectness_loss(end_points)
@@ -47,6 +49,9 @@ def compute_objectness_loss(end_points):
     objectness_score = end_points['objectness_score']
     objectness_label = end_points['objectness_label']
     fp2_inds = end_points['fp2_inds'].long()
+    # log_variable('compute_objectness_loss', varname(objectness_score), objectness_score)
+    # log_variable('compute_objectness_loss', varname(objectness_label), objectness_label)
+    # log_variable('compute_objectness_loss', varname(fp2_inds), fp2_inds)
     objectness_label = torch.gather(objectness_label, 1, fp2_inds)
     loss = criterion(objectness_score, objectness_label)
 

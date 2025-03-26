@@ -9,9 +9,11 @@ import torch.nn as nn
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(ROOT_DIR)
-sys.path.append(os.path.join(ROOT_DIR, 'pointnet2'))
+# sys.path.append(os.path.join(ROOT_DIR, 'pointnet2'))
 
-from pointnet2_modules import PointnetSAModuleVotes, PointnetFPModule
+from pointnet2.pointnet2_modules import PointnetSAModuleVotes, PointnetFPModule
+
+from record_something import log_variable, varname
 
 class Pointnet2Backbone(nn.Module):
     r"""
@@ -27,6 +29,9 @@ class Pointnet2Backbone(nn.Module):
     def __init__(self, input_feature_dim=0):
         super().__init__()
 
+        self.fp2_inds, self.fp2_xyz = None, None
+        self.idx = 0
+        
         self.sa1 = PointnetSAModuleVotes(
                 npoint=2048,
                 radius=0.04,
@@ -94,6 +99,7 @@ class Pointnet2Backbone(nn.Module):
                 XXX_features: float32 Tensor of shape (B,D,K)
                 XXX_inds: int64 Tensor of shape (B,K) values in [0,N-1]
         """
+        self.cache_points = False
         if not end_points: end_points = {}
         batch_size = pointcloud.shape[0]
 
@@ -125,7 +131,18 @@ class Pointnet2Backbone(nn.Module):
         features = self.fp2(end_points['sa2_xyz'], end_points['sa3_xyz'], end_points['sa2_features'], features)
         end_points['fp2_features'] = features
         end_points['fp2_xyz'] = end_points['sa2_xyz']
+        # if (self.fp2_xyz is None) & (self.cache_points == True):
+        self.fp2_xyz = end_points['fp2_xyz']
+            
+        end_points['fp2_xyz'] = self.fp2_xyz
         num_seed = end_points['fp2_xyz'].shape[1]
         end_points['fp2_inds'] = end_points['sa1_inds'][:,0:num_seed] # indices among the entire input point clouds
-
+        # if (self.fp2_inds is None) & (self.cache_points == True):
+        self.fp2_inds = end_points['fp2_inds']
+            
+        end_points['fp2_inds'] = self.fp2_inds
+        # log_variable(f'pointnetbackbone{self.idx}', varname(features), features)
+        # seed_xyz = end_points['fp2_xyz']
+        # log_variable(f'pointnetbackbone{self.idx}', varname(seed_xyz), seed_xyz)
+        # self.idx += 1
         return features, end_points['fp2_xyz'], end_points

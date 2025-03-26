@@ -121,9 +121,11 @@ def initnetandruneval(hook_fn=None, scene_id=1, image_range=(0, 1), object_ids=N
         
     return
 
-def get_fbi(seed_features, type='var', rm_outliers=True):
-    """ Calculates feature based importance (L2 Norm) of seed points from PointNet2 backbone output (before vp module layer).
+def get_fbi(seed_xyz, seed_features, type='sum', rm_outliers=True):
+    """ Calculates feature based importance (L1 Norm) of seed points from PointNet2 backbone output (before vp module layer).
     """
+    if len(seed_features.shape) > 2:
+        seed_features = seed_features.squeeze()
     if type.lower().strip() == 'sum':
         explanations = torch.sum(torch.abs(seed_features), dim=0, keepdim=True)
     elif type.lower().strip() == 'var':
@@ -133,12 +135,93 @@ def get_fbi(seed_features, type='var', rm_outliers=True):
         explanations = torch.var(seed_features, dim=0, keepdim=True)
     if rm_outliers:
         explanations = torch.where(explanations > (1.5 * torch.mean(explanations)), torch.mean(explanations), explanations)
-    # print(explanations[0, 101])
-    # test_sum = 0
-    # for i in seed_features[:, 101]:
-    #     test_sum += abs(i)
-    # print(test_sum)
-    return explanations.squeeze()
+    # explanations = _normalised_to_heatmap((explanations - explanations.min()) / (explanations.max() - explanations.min()))
+    explanations = torch.zeros(explanations.shape)
+    return seed_xyz.squeeze(), explanations.squeeze()
+
+# def _normalised_to_heatmap(values):
+#     values = values.squeeze().cpu().numpy() if isinstance(values, torch.Tensor) else values
+#     colours = np.array([[value, 0, 0] for value in values])
+#     return 
+def _normalised_to_heatmap(values):
+    """
+    Map normalized values to a heatmap color gradient (deep blue to bright yellow).
+    
+    Args:
+        values (torch.Tensor or np.ndarray): Normalized values in the range [0, 1].
+    
+    Returns:
+        np.ndarray: Colors mapped to the heatmap gradient.
+    """
+    values = values.squeeze().cpu().numpy() if isinstance(values, torch.Tensor) else values
+
+    # Map values to a gradient from deep blue (low values) to bright yellow (high values)
+    colours = np.zeros((len(values), 3))  # Initialize RGB array
+    colours[:, 0] = values  # Red channel increases with value
+    colours[:, 1] = values  # Green channel increases with value
+    colours[:, 2] = 1 - values  # Blue channel decreases with value
+
+    return colours
+
+def tuple_to_pointcloud(tensor_tuple):
+    """
+    Convert a tuple of tensors (coordinates and normalized colors) into an Open3D PointCloud.
+    
+    Args:
+        tensor_tuple (tuple): A tuple containing two tensors:
+                              - tensor_tuple[0]: Coordinates (shape: Nx3)
+                              - tensor_tuple[1]: Normalized colors (shape: Nx3, values in [0, 1])
+    
+    Returns:
+        o3d.geometry.PointCloud: The resulting Open3D PointCloud.
+    """
+    # Extract coordinates and colors from the tuple
+    coords, colors = tensor_tuple
+
+    # Ensure the tensors are on the CPU and convert them to NumPy arrays
+    coords_np = coords.cpu().numpy() if isinstance(coords, torch.Tensor) else coords
+    colors_np = colors.cpu().numpy() if isinstance(colors, torch.Tensor) else colors
+    
+    
+    # Create an Open3D PointCloud object
+    point_cloud = o3d.geometry.PointCloud()
+
+    # Assign points and colors to the PointCloud
+    point_cloud.points, point_cloud.colors = generate_grasp_views(coords_np, colors_np)
+
+    return point_cloud
+
+def generate_grasp_views(pc, colors, N=100, phi=(np.sqrt(5)-1)/2, r=0.005):
+    """ Perturb points around each point in the point cloud.
+    Args:
+        pc (np.ndarray): The input point cloud.
+        colors (np.ndarray): The colors for each point.
+        N (int): Number of views to generate.
+        phi (float): Golden ratio.
+        center (np.ndarray): Center point for the views.
+        r (float): Radius for the views.
+    Returns:
+        np.ndarray: Generated grasp views.
+        np.ndarray: Colors for the generated grasp views.
+    """
+    all_points = []
+    all_point_colours = []
+    for point, color in zip(pc, colors):
+        for i in range(N):
+            zi = (2 * i + 1) / N - 1
+            xi = np.sqrt(1 - zi**2) * np.cos(2 * i * np.pi * phi)
+            yi = np.sqrt(1 - zi**2) * np.sin(2 * i * np.pi * phi)
+            all_points.append(r * np.array([xi, yi, zi]) + point)
+            all_point_colours.append(color)
+    return o3d.utility.Vector3dVector(np.array(all_points)), o3d.utility.Vector3dVector(np.array(all_point_colours))
+
+def feature_prevelance(seed_features):
+    fp = {k: 0 for k in range(256)}
+    if seed_features.shape[0] == 1:
+        seed_features.squeeze(0)
+    for i, point in enumerate(seed_features):  # USE torch...
+        for j, feature in point:
+            fp[j] += feature
     
 def detatch_dict(in_dict):
     """ Detatch tensors in dict and load them on host memory.

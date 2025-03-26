@@ -1,0 +1,1 @@
+rsync -avz --partial --progress dataset \egyas8@hpclogin01.ada.nottingham.ac.uk:/gpfs01/home/egyas8/graspnet-baseline

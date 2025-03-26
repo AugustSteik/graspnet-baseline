@@ -11,25 +11,29 @@ from torch.utils.data import DataLoader
 from graspnetAPI import GraspGroup, GraspNetEval
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.join(ROOT_DIR, 'models'))
-sys.path.append(os.path.join(ROOT_DIR, 'dataset'))
-sys.path.append(os.path.join(ROOT_DIR, 'utils'))
+sys.path.append(ROOT_DIR)
+# sys.path.append(os.path.join(ROOT_DIR, 'dataset'))
+# sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 
-from graspnet import GraspNet, pred_decode
-from graspnet_dataset import GraspNetDataset, collate_fn
-from collision_detector import ModelFreeCollisionDetector
+from models.graspnet import GraspNet, pred_decode
+from dataset.graspnet_dataset import GraspNetDataset, collate_fn
+from utils.collision_detector import ModelFreeCollisionDetector
+
+from record_something import varname, log_variable
+
+log_vars = False
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset_root', required=True, help='Dataset root')
-parser.add_argument('--checkpoint_path', required=True, help='Model checkpoint path')
-parser.add_argument('--dump_dir', required=True, help='Dump dir to save outputs')
-parser.add_argument('--camera', required=True, help='Camera split [realsense/kinect]')
+parser.add_argument('--dataset_root', required=False, default=f'{ROOT_DIR}/dataset', help='Dataset root')
+parser.add_argument('--checkpoint_path', required=False, default=f'{ROOT_DIR}/logs/original/checkpoint-kn.tar', help='Model checkpoint path')
+parser.add_argument('--dump_dir', required=False, default=f'{ROOT_DIR}/new_logs/original/test_outputs', help='Dump dir to save outputs')
+parser.add_argument('--camera', required=False, default='kinect', help='Camera split [realsense/kinect]')
 parser.add_argument('--num_point', type=int, default=20000, help='Point Number [default: 20000]')
 parser.add_argument('--num_view', type=int, default=300, help='View Number [default: 300]')
 parser.add_argument('--batch_size', type=int, default=1, help='Batch Size during inference [default: 1]')
 parser.add_argument('--collision_thresh', type=float, default=0.01, help='Collision Threshold in collision detection [default: 0.01]')
 parser.add_argument('--voxel_size', type=float, default=0.01, help='Voxel Size to process point clouds before collision detection [default: 0.01]')
-parser.add_argument('--num_workers', type=int, default=30, help='Number of workers used in evaluation [default: 30]')
+parser.add_argument('--num_workers', type=int, default=10, help='Number of workers used in evaluation [default: 30]')
 cfgs = parser.parse_args()
 
 # ------------------------------------------------------------------------- GLOBAL CONFIG BEG
@@ -42,6 +46,16 @@ def my_worker_init_fn(worker_id):
 
 # Create Dataset and Dataloader
 TEST_DATASET = GraspNetDataset(cfgs.dataset_root, valid_obj_idxs=None, grasp_labels=None, split='test', camera=cfgs.camera, num_points=cfgs.num_point, remove_outlier=True, augment=False, load_label=False)
+# get_labels = False
+# valid_obj_idxs, grasp_labels = None, None
+# if get_labels:
+#     valid_obj_idxs, grasp_labels = load_grasp_labels(cfgs.dataset_root)
+# annotation_id = 0
+# scene_id = 0
+# image_range=(annotation_id, annotation_id+1)
+# TEST_DATASET = GraspNetDataset(cfgs.dataset_root, valid_obj_idxs=valid_obj_idxs, grasp_labels=grasp_labels, 
+#                             split='test', camera=cfgs.camera, num_points=cfgs.num_point, 
+#                             remove_outlier=True, augment=False, load_label=False, debug=True, image_range=image_range, scene_id=scene_id)
 
 print(len(TEST_DATASET))
 SCENE_LIST = TEST_DATASET.scene_list()
@@ -81,6 +95,9 @@ def inference():
         with torch.no_grad():
             end_points = net(batch_data)
             grasp_preds = pred_decode(end_points)
+            if log_vars:
+                log_variable(f'inference{batch_idx}', varname(grasp_preds), grasp_preds)
+                log_variable(f'inference{batch_idx}', varname(end_points), end_points)
 
         # Dump results for evaluation
         for i in range(cfgs.batch_size):

@@ -14,15 +14,18 @@ from collections.abc import Mapping, Sequence
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
+from record_something import log_variable, varname
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 from utils.data_utils import CameraInfo, transform_point_cloud, create_point_cloud_from_depth_image,\
                             get_workspace_mask, remove_invisible_grasp_points
-
+log_vars = False
 class GraspNetDataset(Dataset):
     def __init__(self, root, valid_obj_idxs, grasp_labels, camera='kinect', split='train', num_points=20000,
-                 remove_outlier=False, remove_invisible=True, augment=False, load_label=True, debug=False, image_range=(0, 256), scene_id = None):
+                 remove_outlier=False, remove_invisible=True, augment=False, load_label=True, debug=False, image_range=(0, 256), scene_id = None,
+                 keep_object_ids=False):
         assert(num_points<=50000)
         self.root = root
         self.split = split
@@ -36,6 +39,7 @@ class GraspNetDataset(Dataset):
         self.load_label = load_label
         self.collision_labels = {}
         self.debug = debug
+        self.keep_object_ids = keep_object_ids
 
         if scene_id is not None:
             self.sceneIds = [scene_id]
@@ -106,7 +110,7 @@ class GraspNetDataset(Dataset):
         else:
             return self.get_data(index)
 
-    def get_data(self, index, return_raw_cloud=False):
+    def get_data(self, index, return_raw_cloud=False, return_seg=False):
         color = np.array(Image.open(self.colorpath[index]), dtype=np.float32) / 255.0
         depth = np.array(Image.open(self.depthpath[index]))
         seg = np.array(Image.open(self.labelpath[index]))
@@ -153,15 +157,19 @@ class GraspNetDataset(Dataset):
         ret_dict = {}
         ret_dict['point_clouds'] = cloud_sampled.astype(np.float32)
         ret_dict['cloud_colors'] = color_sampled.astype(np.float32)
-
+        ret_dict['seg_masked'] = seg_masked
         return ret_dict
 
     def get_data_label(self, index):
+        ret_dict = {}
+        limited = True if 'limited' in self.grasp_labels.keys() else False
+        
         color = np.array(Image.open(self.colorpath[index]), dtype=np.float32) / 255.0
         depth = np.array(Image.open(self.depthpath[index]))
         seg = np.array(Image.open(self.labelpath[index]))
         meta = scio.loadmat(self.metapath[index])
         scene = self.scenename[index]
+        
         try:
             obj_idxs = meta['cls_indexes'].flatten().astype(np.int32)
             poses = meta['poses']
@@ -201,8 +209,13 @@ class GraspNetDataset(Dataset):
         color_sampled = color_masked[idxs]
         seg_sampled = seg_masked[idxs]
         objectness_label = seg_sampled.copy()
-        objectness_label[objectness_label>1] = 1
-        
+        if log_vars:
+            log_variable(f'graspnet_dataset-get_data_labels{index}', f'{varname(objectness_label)}-object_ids', objectness_label)
+        if self.keep_object_ids:
+            ret_dict['objectness_label_with_object_ids'] = objectness_label.astype(np.int64)
+        objectness_label[objectness_label>1] = 1            
+        if log_vars:
+            log_variable(f'graspnet_dataset-get_data_labels{index}', f'{varname(objectness_label)}-objectness_0-1', objectness_label)
         object_poses_list = []
         grasp_points_list = []
         grasp_offsets_list = []
@@ -214,33 +227,34 @@ class GraspNetDataset(Dataset):
             if (seg_sampled == obj_idx).sum() < 50:
                 continue
             object_poses_list.append(poses[:, :, i])
-            points, offsets, scores, tolerance = self.grasp_labels[obj_idx]
             collision = self.collision_labels[scene][i] #(Np, V, A, D)
+            if not limited:
+                points, offsets, scores, tolerance = self.grasp_labels[obj_idx]
+            
 
-            # remove invisible grasp points
-            if self.remove_invisible:
-                visible_mask = remove_invisible_grasp_points(cloud_sampled[seg_sampled==obj_idx], points, poses[:,:,i], th=0.01)
-                points = points[visible_mask]
-                offsets = offsets[visible_mask]
-                scores = scores[visible_mask]
-                tolerance = tolerance[visible_mask]
-                collision = collision[visible_mask]
+                # remove invisible grasp points
+                if self.remove_invisible:
+                    visible_mask = remove_invisible_grasp_points(cloud_sampled[seg_sampled==obj_idx], points, poses[:,:,i], th=0.01)
+                    points = points[visible_mask]
+                    offsets = offsets[visible_mask]
+                    scores = scores[visible_mask]
+                    tolerance = tolerance[visible_mask]
+                    collision = collision[visible_mask]
 
-            idxs = np.random.choice(len(points), min(max(int(len(points)/4),300),len(points)), replace=False)
-            grasp_points_list.append(points[idxs])
-            grasp_offsets_list.append(offsets[idxs])
-            collision = collision[idxs].copy()
-            scores = scores[idxs].copy()
-            scores[collision] = 0
-            grasp_scores_list.append(scores)
-            tolerance = tolerance[idxs].copy()
-            tolerance[collision] = 0
-            grasp_tolerance_list.append(tolerance)
+                idxs = np.random.choice(len(points), min(max(int(len(points)/4),300),len(points)), replace=False)
+                grasp_points_list.append(points[idxs])
+                grasp_offsets_list.append(offsets[idxs])
+                collision = collision[idxs].copy()
+                scores = scores[idxs].copy()
+                scores[collision] = 0
+                grasp_scores_list.append(scores)
+                tolerance = tolerance[idxs].copy()
+                tolerance[collision] = 0
+                grasp_tolerance_list.append(tolerance)
         
         if self.augment:
             cloud_sampled, object_poses_list = self.augment_data(cloud_sampled, object_poses_list)
         
-        ret_dict = {}
         ret_dict['point_clouds'] = cloud_sampled.astype(np.float32)
         ret_dict['cloud_colors'] = color_sampled.astype(np.float32)
         ret_dict['objectness_label'] = objectness_label.astype(np.int64)
@@ -252,21 +266,21 @@ class GraspNetDataset(Dataset):
 
         return ret_dict
 
-def load_grasp_labels(root):
-    # if not DEBUG:
+def load_grasp_labels(root, limited=False):
     obj_names = list(range(88))
-    # else:
-    #     obj_names = list(range(2))
     valid_obj_idxs = []
     grasp_labels = {}
-    for i, obj_name in enumerate(tqdm(obj_names, desc='Loading grasping labels...')):
-        if i == 18: continue
-        valid_obj_idxs.append(i + 1) #here align with label png
-        label = np.load(os.path.join(root, 'grasp_label', '{}_labels.npz'.format(str(i).zfill(3))))
-        tolerance = np.load(os.path.join(BASE_DIR, 'tolerance', '{}_tolerance.npy'.format(str(i).zfill(3))))
-        grasp_labels[i + 1] = (label['points'].astype(np.float32), label['offsets'].astype(np.float32),
-                                label['scores'].astype(np.float32), tolerance)
-
+    if not limited:
+        for i, obj_name in enumerate(tqdm(obj_names, desc='Loading grasping labels...')):
+            if i == 18: continue
+            valid_obj_idxs.append(i + 1) #here align with label png
+            label = np.load(os.path.join(root, 'grasp_label', '{}_labels.npz'.format(str(i).zfill(3))))
+            tolerance = np.load(os.path.join(BASE_DIR, 'tolerance', '{}_tolerance.npy'.format(str(i).zfill(3))))
+            grasp_labels[i + 1] = (label['points'].astype(np.float32), label['offsets'].astype(np.float32),
+                                    label['scores'].astype(np.float32), tolerance)
+    else:
+        valid_obj_idxs = list(range(1, 89))
+        grasp_labels['limited'] = True
     return valid_obj_idxs, grasp_labels
 
 def collate_fn(batch):
