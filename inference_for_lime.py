@@ -21,6 +21,7 @@ from utils.collision_detector import ModelFreeCollisionDetector
 
 from record_something import varname, log_variable
 
+# from xai_inference_utils import load_data, load_model, inference_one_batch
 from get_best_predictions import get_best_grasp_per_object
 from model_wrapper import WrappedGraspNet
 
@@ -68,9 +69,11 @@ SCENE_LIST = TEST_DATASET.scene_list()
 TEST_DATALOADER = DataLoader(TEST_DATASET, batch_size=cfgs.batch_size, shuffle=False,
     num_workers=4, worker_init_fn=my_worker_init_fn, collate_fn=collate_fn)
 print(len(TEST_DATALOADER))
-# Init the model
+# # Init the model
 gnet = WrappedGraspNet(input_feature_dim=0, num_view=cfgs.num_view, num_angle=12, num_depth=4,
                      cylinder_radius=0.05, hmin=-0.02, hmax_list=[0.01,0.02,0.03,0.04], is_training=False)
+# gnet = GraspNet(input_feature_dim=0, num_view=cfgs.num_view, num_angle=12, num_depth=4,
+                    #  cylinder_radius=0.05, hmin=-0.02, hmax_list=[0.01,0.02,0.03,0.04], is_training=False)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 gnet.to(device)
 # Load checkpoint
@@ -98,7 +101,9 @@ def inference(net=gnet, dataset=TEST_DATASET, dataloader=TEST_DATALOADER, object
         # Forward pass
         with torch.no_grad():
             end_points = net(batch_data, object_id=object_id)
+            # end_points = net(batch_data)
             logits, prediction = net(point_cloud)
+            # logits, prediction = None, None
             grasp_preds = pred_decode(end_points)
             if log_vars:
                 log_variable(f'inference{batch_idx}', varname(grasp_preds), grasp_preds)

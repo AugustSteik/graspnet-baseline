@@ -22,3 +22,7 @@ dataset/scenes
 dataset/tolerance
 grasp_lime/data
 grasp_lime/visu
+*run*
+*end_points*
+*.json
+test_bed/

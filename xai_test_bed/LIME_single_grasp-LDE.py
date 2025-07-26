@@ -25,9 +25,11 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from graspnetAPI import GraspGroup, GraspNetEval, GraspNet as gnet
 
-LIME_DIR = os.path.dirname(os.path.abspath(__file__))  # LIME directory
-GRASPNET_DIR = os.path.dirname(LIME_DIR)  # Graspnet directory
+GRASPNET_DIR = os.path.dirname(os.path.dirname(__file__))
+LIME_DIR = os.path.join(GRASPNET_DIR, 'grasp_lime')
+ROOT = os.path.dirname(__file__)
 
+sys.path.append(ROOT)
 sys.path.append(GRASPNET_DIR)
 
 # from models.graspnet import MyGraspNet, pred_decode, GraspNet
@@ -38,6 +40,7 @@ from grasp_lime.lime import lime_3d_remove
 
 from record_something import log_variable, varname
 from inference_for_lime import inference
+from xai_inference_utils import load_data, load_model, inference_one_batch
 
 
 log_vars = False
@@ -329,26 +332,27 @@ def reorder_points_nearest_neighbor_torch(pc):  # Kind of like a random walk sim
 
 
 if __name__ == '__main__':
-    # Set up logging
-    def log_string(str):
-        logger.info(str)
-        print(str)
+    # # Set up logging
+    # def log_string(str):
+    #     logger.info(str)
+    #     print(str)
 
-    logger = logging.getLogger("GraspNet_Explanation")
-    logger.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    file_handler = logging.FileHandler('%s/eval.txt' % os.path.join(LIME_DIR, cfgs.log_dir))
-    file_handler.setLevel(logging.INFO)
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-    log_string('PARAMETER ...')
-    log_string(cfgs)
+    # logger = logging.getLogger("GraspNet_Explanation")
+    # logger.setLevel(logging.INFO)
+    # formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    # file_handler = logging.FileHandler('%s/eval.txt' % os.path.join(LIME_DIR, cfgs.log_dir))
+    # file_handler.setLevel(logging.INFO)
+    # file_handler.setFormatter(formatter)
+    # logger.addHandler(file_handler)
+    # log_string('PARAMETER ...')
+    # log_string(cfgs)
     
     """NOTE:  model ouputs: logits for each of the 40 classes [1, 40], sa3 layer outputs!? [1, 1024, 1]
               Single tensor[] of predictions is only needed for their genpcdata function"""
     
     scene_id = 100
-    object_id = 52  # For scene 100: 9,11,20,29,30,41,48,52,58,62
+    object_id = 48  # For scene 100: 9(scissors),11,20,29,30,41(paste),48(camel),52(elephant),58(box),62
+    
     net, gg, end_points, grasps_per_object, best_grasp_per_object, logits, prediction, point_cloud = inference(object_id=object_id)
     
     top_grasp_xyz = best_grasp_per_object[object_id][13:16].cpu().numpy()
@@ -358,7 +362,7 @@ if __name__ == '__main__':
     
     
     num_points = 5  # doubles 
-    point_idx, view_idx = prediction
+    point_idx, view_idx = prediction if prediction else (0, 0)
     
     key_points = end_points['fp2_xyz'][:, point_idx, :].squeeze().cpu().numpy()  # They are all over the place even though they are next to eachother in the list
     # key_points, inds = sort_by_xyz(end_points['fp2_xyz'].squeeze())
@@ -368,10 +372,10 @@ if __name__ == '__main__':
     
     # best_score_point_idx = (torch.argmax(logits).item() - view_idx) / 300
     
-    # tmp = time.time()
-    # explanation = explainer.explain_instance(point_cloud, net, labels=(flattened_idx, ), num_features=500, num_samples=100, random_seed=0)  # 3k features no work
-    # print ('Completed in: ',time.time() - tmp,'s')
+    tmp = time.time()
+    explanation = explainer.explain_instance(point_cloud, net, labels=(flattened_idx, ), num_features=500, num_samples=10, random_seed=0)  # 3k features no work
+    print ('Completed in: ',time.time() - tmp,'s')
     
-    # gen_pc_dater(point_cloud.cpu().numpy(), explanation.segments, explanation.local_exp,flattened_idx, f'/scene_0{scene_id}-{object_id}.ply')
-    show_pc_plx(f'/scene_0{scene_id}-{object_id}.ply', point_cloud.cpu().numpy(), [key_points]) # type: ignore   # WAS top_grasp
+    gen_pc_dater(point_cloud.cpu().numpy(), explanation.segments, explanation.local_exp,flattened_idx, f'/scene_0{scene_id}.ply')
+    show_pc_plx(f'/scene_0{scene_id}.ply', point_cloud.cpu().numpy(), [key_points]) # type: ignore   # WAS top_grasp
     

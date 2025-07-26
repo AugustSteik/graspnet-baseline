@@ -13,7 +13,7 @@ sys.path.append(ROOT_DIR)
 
 from pointnet2.pointnet2_modules import PointnetSAModuleVotes, PointnetFPModule
 
-from record_something import log_variable, varname
+from record_something import log_variable, varname, save_tensor_dict_to_json
 
 class Pointnet2Backbone(nn.Module):
     r"""
@@ -143,6 +143,7 @@ class Pointnet2Backbone(nn.Module):
         end_points['fp2_inds'] = self.fp2_inds
         # log_variable(f'pointnetbackbone{self.idx}', varname(features), features)
         # seed_xyz = end_points['fp2_xyz']
-        # log_variable(f'pointnetbackbone{self.idx}', varname(seed_xyz), seed_xyz)
+        # log_variable(f'pointnetbackbone{0}-ep', varname(end_points), end_points)
+        # save_tensor_dict_to_json(f'pointnetbackbone-end_points', end_points)
         # self.idx += 1
         return features, end_points['fp2_xyz'], end_points

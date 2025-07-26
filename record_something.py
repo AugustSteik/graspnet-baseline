@@ -12,6 +12,47 @@ opts.indent_size = 4
 
 KEEP_KEYS = ('score', 'view', 'label')
 
+import torch
+import json
+
+def save_tensor_dict_to_json(log_name, in_var, out_path=None):
+    """
+    Converts a dictionary of PyTorch tensors, lists, or nested structures to regular lists
+    and saves it as a JSON file.
+
+    Args:
+        log_name (str): Name of the log file.
+        in_var (dict): Dictionary with tensor values or nested structures.
+        out_path (str, optional): File path to save the JSON file. Defaults to None.
+    """
+    if out_path is None:
+        out_path = os.path.join(os.path.dirname(__file__), 'variable_logs', f'{log_name}.json')
+
+    def process_value(value):
+        """
+        Recursively process a value to make it JSON serializable.
+        Handles tensors, lists, nested lists, and None values.
+        """
+        if isinstance(value, torch.Tensor):
+            return value.tolist()  # Convert tensor to list
+        elif isinstance(value, np.ndarray):
+            return value.tolist()  # Convert numpy array to list
+        elif isinstance(value, list):
+            return [process_value(v) for v in value]  # Recursively process each element in the list
+        elif isinstance(value, dict):
+            return {k: process_value(v) for k, v in value.items()}  # Recursively process each key-value pair
+        elif value is None:
+            return None  # Handle None values
+        else:
+            return value  # Return the value as is for other types (e.g., int, float, str)
+
+    # Process the input dictionary
+    serializable_dict = {k: process_value(v) for k, v in in_var.items()}
+
+    # Write the processed dictionary to a JSON file
+    with open(out_path, 'w') as f:
+        json.dump(serializable_dict, f, indent=4)
+
 def log_variable(log_name, in_name, in_var, out_path=None):
     """ Save the value of a variable and save it to a file.
     """
@@ -48,7 +89,7 @@ def log_variable(log_name, in_name, in_var, out_path=None):
     elif isinstance(in_var, Dict):
         out_dict = {}
         for k, v in in_var.items():
-            if not any(key in k.lower() for key in KEEP_KEYS):
+            if False and not any(key in k.lower() for key in KEEP_KEYS):  # Skip unwanted keys - for now
                 continue
             if isinstance(v, torch.Tensor):
                 val = {k: {

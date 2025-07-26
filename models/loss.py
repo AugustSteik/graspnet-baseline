@@ -44,14 +44,11 @@ def get_approach_loss(end_points):
     end_points['loss/overall_loss'] = loss
     return loss, end_points
 
-def compute_objectness_loss(end_points):
-    criterion = nn.CrossEntropyLoss(reduction='mean')
+def compute_objectness_loss(end_points, reduction='mean'):
+    criterion = nn.CrossEntropyLoss(reduction=reduction)
     objectness_score = end_points['objectness_score']
     objectness_label = end_points['objectness_label']
     fp2_inds = end_points['fp2_inds'].long()
-    # log_variable('compute_objectness_loss', varname(objectness_score), objectness_score)
-    # log_variable('compute_objectness_loss', varname(objectness_label), objectness_label)
-    # log_variable('compute_objectness_loss', varname(fp2_inds), fp2_inds)
     objectness_label = torch.gather(objectness_label, 1, fp2_inds)
     loss = criterion(objectness_score, objectness_label)
 
@@ -64,7 +61,7 @@ def compute_objectness_loss(end_points):
 
     return loss, end_points
 
-def compute_view_loss(end_points):
+def compute_view_loss(end_points, pointwise=False):
     criterion = nn.MSELoss(reduction='none')
     view_score = end_points['view_score']
     view_label = end_points['batch_grasp_view_label']
@@ -78,7 +75,7 @@ def compute_view_loss(end_points):
     pos_view_pred_mask = ((view_score >= THRESH_GOOD) & objectness_mask)
 
     loss = criterion(view_score, view_label)
-    loss = loss[objectness_mask].mean()
+    loss = (loss * objectness_mask).mean(2) if pointwise else loss[objectness_mask].mean()
 
     end_points['loss/stage1_view_loss'] = loss
     end_points['stage1_pos_view_pred_count'] = pos_view_pred_mask.long().sum()

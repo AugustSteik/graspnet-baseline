@@ -121,28 +121,66 @@ def initnetandruneval(hook_fn=None, scene_id=1, image_range=(0, 1), object_ids=N
         
     return
 
-def get_fbi(seed_xyz, seed_features, type='sum', rm_outliers=True):
+def get_fbi(end_points, type='sum', rm_outliers=True, filter_scene=False):
     """ Calculates feature based importance (L1 Norm) of seed points from PointNet2 backbone output (before vp module layer).
     """
+    
+    seed_xyz = end_points['fp2_xyz'].detach().squeeze().cpu().numpy()
+    seed_features = end_points['fp2_features'].detach().squeeze().cpu().numpy().T
+    if filter_scene:
+        objectness_labels = end_points['objectness_label'].detach().squeeze().cpu().numpy()
+        fp2_inds = end_points['fp2_inds'].detach().squeeze().cpu().numpy()
+        objectness_labels = objectness_labels[fp2_inds]
+        mask_inds = np.where(objectness_labels)
+        seed_xyz = seed_xyz[mask_inds]
+        seed_features = seed_features[mask_inds]
+        
     if len(seed_features.shape) > 2:
         seed_features = seed_features.squeeze()
+        
     if type.lower().strip() == 'sum':
-        explanations = torch.sum(torch.abs(seed_features), dim=0, keepdim=True)
-    elif type.lower().strip() == 'var':
-        explanations = torch.var(seed_features, dim=0, keepdim=True)
+        try:
+            explanations = torch.sum(torch.abs(seed_features), dim=0, keepdim=True)
+        except:
+            explanations = np.sum(np.abs(seed_features), axis=1, keepdims=True)
     else:
-        print("Invalid type. Using default: var")
-        explanations = torch.var(seed_features, dim=0, keepdim=True)
+        try:
+            explanations = torch.var(seed_features, dim=0, keepdim=True)
+        except:
+            explanations = np.var(np.abs(seed_features), axis=1, keepdims=True)
+
     if rm_outliers:
-        explanations = torch.where(explanations > (1.5 * torch.mean(explanations)), torch.mean(explanations), explanations)
-    # explanations = _normalised_to_heatmap((explanations - explanations.min()) / (explanations.max() - explanations.min()))
-    explanations = torch.zeros(explanations.shape)
-    return seed_xyz.squeeze(), explanations.squeeze()
+        explanations = np.where(explanations > (1.5 * np.mean(explanations)), np.max(explanations), explanations)
+        
+    explanations = np.squeeze(explanations)
+    explanations = normalise(explanations)
+    explanations = _normalised_to_heatmap(explanations)
+    
+    return seed_xyz, explanations
+
+def normalise(arr):
+    """
+    Normalise the input array to the range [0, 1].
+    
+    Args:
+        arr (np.ndarray): Input array to normalize.
+    
+    Returns:
+        np.ndarray: Normalized array.
+    """
+    min_val = np.min(arr)
+    max_val = np.max(arr)
+    
+    if max_val - min_val == 0:
+        return np.zeros_like(arr)
+    
+    return (arr - min_val) / (max_val - min_val)
 
 # def _normalised_to_heatmap(values):
 #     values = values.squeeze().cpu().numpy() if isinstance(values, torch.Tensor) else values
 #     colours = np.array([[value, 0, 0] for value in values])
 #     return 
+
 def _normalised_to_heatmap(values):
     """
     Map normalized values to a heatmap color gradient (deep blue to bright yellow).
@@ -157,9 +195,9 @@ def _normalised_to_heatmap(values):
 
     # Map values to a gradient from deep blue (low values) to bright yellow (high values)
     colours = np.zeros((len(values), 3))  # Initialize RGB array
-    colours[:, 0] = values  # Red channel increases with value
-    colours[:, 1] = values  # Green channel increases with value
-    colours[:, 2] = 1 - values  # Blue channel decreases with value
+    colours[:, 0] = 0#values  # Red channel increases with value
+    colours[:, 1] = 0#values  # Green channel increases with value
+    colours[:, 2] = values  # Blue channel increases with value
 
     return colours
 
@@ -213,7 +251,10 @@ def generate_grasp_views(pc, colors, N=100, phi=(np.sqrt(5)-1)/2, r=0.005):
             yi = np.sqrt(1 - zi**2) * np.sin(2 * i * np.pi * phi)
             all_points.append(r * np.array([xi, yi, zi]) + point)
             all_point_colours.append(color)
-    return o3d.utility.Vector3dVector(np.array(all_points)), o3d.utility.Vector3dVector(np.array(all_point_colours))
+    all_points = np.array(all_points, dtype=np.float64)
+    all_point_colours = np.array(all_point_colours, dtype=np.float64)
+    # print(all_points.shape, all_point_colours.shape)
+    return o3d.utility.Vector3dVector(all_points), o3d.utility.Vector3dVector(all_point_colours)
 
 def feature_prevelance(seed_features):
     fp = {k: 0 for k in range(256)}
@@ -286,7 +327,6 @@ def show_pc_plotly(pointcloud, explanations=torch.zeros((1024)), seed_xyz=torch.
     fig.show()
     return
 
-# GPT code:
 def show_pc_open3d(pointcloud, explanations=torch.zeros((1024)), seed_xyz=torch.zeros((1024, 3))):
     """
     Plots colored PC explanations using Open3D.
